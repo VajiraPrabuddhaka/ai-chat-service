@@ -73,8 +73,10 @@ spec:
     env:
       - key: LOG_LEVEL
         value: "info"
+      - key: OPENAI_BASE_URL
+        value: "https://api.groq.com/openai"
       - key: OPENAI_MODEL
-        value: "gpt-4o-mini"
+        value: "llama-3.3-70b-versatile"
       - key: OPENAI_API_KEY
         valueFrom:
           secretKeyRef:
