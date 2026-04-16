@@ -1,0 +1,65 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: Component
+metadata:
+  name: ai-chat-service
+  namespace: default
+spec:
+  owner:
+    projectName: default
+  autoDeploy: true
+  componentType:
+    kind: ClusterComponentType
+    name: deployment/service
+
+---
+
+apiVersion: openchoreo.dev/v1alpha1
+kind: Workload
+metadata:
+  name: ai-chat-service-workload
+  namespace: default
+spec:
+  owner:
+    projectName: default
+    componentName: ai-chat-service
+  endpoints:
+    http:
+      type: HTTP
+      port: 8080
+      visibility: [external]
+  container:
+    image: "ai-chat-service:latest"
+    command:
+      - /ai-chat-service
+    args:
+      - --port
+      - "8080"
+    env:
+      - key: LOG_LEVEL
+        value: "info"
+      - key: OPENAI_MODEL
+        value: "gpt-4o-mini"
+      - key: OPENAI_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: openai-credentials
+            key: api-key
+
+---
+
+apiVersion: openchoreo.dev/v1alpha1
+kind: SecretReference
+metadata:
+  name: openai-credentials
+  namespace: default
+spec:
+  template:
+    type: Opaque
+    metadata:
+      labels:
+        app: ai-chat-service
+  data:
+    - secretKey: api-key
+      remoteRef:
+        key: openai-api-key
+  refreshInterval: 1h
