@@ -98,4 +98,5 @@ spec:
     - secretKey: api-key
       remoteRef:
         key: openai-api-key
+        property: value
   refreshInterval: 1h
