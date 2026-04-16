@@ -10,6 +10,42 @@ spec:
   componentType:
     kind: ClusterComponentType
     name: deployment/service
+  workflow:
+    kind: ClusterWorkflow
+    name: dockerfile-builder
+    parameters:
+      repository:
+        url: "https://github.com/VajiraPrabuddhaka/ai-chat-service"
+        revision:
+          branch: "main"
+        appPath: "/"
+      docker:
+        context: "/"
+        filePath: "/Dockerfile"
+
+---
+
+apiVersion: openchoreo.dev/v1alpha1
+kind: WorkflowRun
+metadata:
+  name: ai-chat-service-build-01
+  namespace: default
+  labels:
+    openchoreo.dev/project: "default"
+    openchoreo.dev/component: "ai-chat-service"
+spec:
+  workflow:
+    kind: ClusterWorkflow
+    name: dockerfile-builder
+    parameters:
+      repository:
+        url: "https://github.com/VajiraPrabuddhaka/ai-chat-service"
+        revision:
+          branch: "main"
+        appPath: "/"
+      docker:
+        context: "/"
+        filePath: "/Dockerfile"
 
 ---
 
