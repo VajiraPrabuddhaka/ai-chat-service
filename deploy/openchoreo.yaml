@@ -22,6 +22,13 @@ spec:
       docker:
         context: "/"
         filePath: "/Dockerfile"
+  traits:
+    - kind: ClusterTrait
+      name: groq-ai-gateway
+      instanceName: llm
+      parameters:
+        model: llama-3.3-70b-versatile
+        apiKeyRef: openai-api-key
 
 ---
 
@@ -73,32 +80,5 @@ spec:
     env:
       - key: LOG_LEVEL
         value: "info"
-      - key: OPENAI_BASE_URL
-        value: "https://api.groq.com/openai"
       - key: OPENAI_MODEL
         value: "llama-3.3-70b-versatile"
-      - key: OPENAI_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: openai-credentials
-            key: api-key
-
----
-
-apiVersion: openchoreo.dev/v1alpha1
-kind: SecretReference
-metadata:
-  name: openai-credentials
-  namespace: default
-spec:
-  template:
-    type: Opaque
-    metadata:
-      labels:
-        app: ai-chat-service
-  data:
-    - secretKey: api-key
-      remoteRef:
-        key: openai-api-key
-        property: value
-  refreshInterval: 1h

@@ -1,0 +1,168 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: ClusterTrait
+metadata:
+  name: anthropic-ai-gateway
+spec:
+  parameters:
+    openAPIV3Schema:
+      type: object
+      required: [model, apiKeyRef]
+      properties:
+        model:
+          type: string
+          default: "claude-sonnet-4-6"
+          description: "Anthropic model name (e.g., claude-sonnet-4-6, claude-haiku-4-5-20251001)"
+        apiKeyRef:
+          type: string
+          description: "OpenBao secret key name containing the Anthropic API key"
+        gatewayName:
+          type: string
+          default: "agentgateway-proxy"
+          description: "Name of the agentgateway Gateway resource on the data plane"
+        gatewayNamespace:
+          type: string
+          default: "openchoreo-data-plane"
+          description: "Namespace of the agentgateway Gateway on the data plane"
+
+  environmentConfigs:
+    openAPIV3Schema:
+      type: object
+      properties:
+        guardrails:
+          type: object
+          default: {}
+          properties:
+            enabled:
+              type: boolean
+              default: true
+              description: "Enable PII and prompt injection guardrails"
+            builtins:
+              type: array
+              items:
+                type: string
+              default: [CreditCard, Ssn, Email]
+              description: "Built-in PII detectors to apply"
+        rateLimit:
+          type: object
+          default: {}
+          properties:
+            requestsPerMinute:
+              type: integer
+              default: 60
+              description: "Maximum requests per minute"
+
+  creates:
+    # ExternalSecret — pulls API key from OpenBao, formats as Authorization header
+    - targetPlane: dataplane
+      template:
+        apiVersion: external-secrets.io/v1
+        kind: ExternalSecret
+        metadata:
+          name: ${metadata.name}-${trait.instanceName}-ai-auth
+          namespace: ${parameters.gatewayNamespace}
+        spec:
+          refreshInterval: 1h
+          secretStoreRef:
+            kind: ClusterSecretStore
+            name: ${dataplane.secretStore}
+          target:
+            name: ${metadata.name}-${trait.instanceName}-ai-auth
+            creationPolicy: Owner
+            template:
+              type: Opaque
+              data:
+                Authorization: "Bearer {{ .apikey | toString }}"
+          data:
+            - secretKey: apikey
+              remoteRef:
+                key: ${parameters.apiKeyRef}
+                property: value
+
+    # AgentgatewayBackend — Anthropic provider
+    - targetPlane: dataplane
+      template:
+        apiVersion: agentgateway.dev/v1alpha1
+        kind: AgentgatewayBackend
+        metadata:
+          name: ${metadata.name}-${trait.instanceName}
+          namespace: ${parameters.gatewayNamespace}
+        spec:
+          ai:
+            provider:
+              anthropic:
+                model: ${parameters.model}
+          policies:
+            auth:
+              secretRef:
+                name: ${metadata.name}-${trait.instanceName}-ai-auth
+
+    # HTTPRoute — routes to this component's backend via component header
+    - targetPlane: dataplane
+      template:
+        apiVersion: gateway.networking.k8s.io/v1
+        kind: HTTPRoute
+        metadata:
+          name: ${metadata.name}-${trait.instanceName}-llm-route
+          namespace: ${parameters.gatewayNamespace}
+        spec:
+          parentRefs:
+            - name: ${parameters.gatewayName}
+              namespace: ${parameters.gatewayNamespace}
+          rules:
+            - matches:
+                - headers:
+                    - name: x-openchoreo-component
+                      value: ${metadata.componentName}
+              backendRefs:
+                - name: ${metadata.name}-${trait.instanceName}
+                  namespace: ${parameters.gatewayNamespace}
+                  group: agentgateway.dev
+                  kind: AgentgatewayBackend
+
+    # AgentgatewayPolicy — guardrails (conditional)
+    - targetPlane: dataplane
+      includeWhen: ${has(environmentConfigs.guardrails) && environmentConfigs.guardrails.enabled}
+      template:
+        apiVersion: agentgateway.dev/v1alpha1
+        kind: AgentgatewayPolicy
+        metadata:
+          name: ${metadata.name}-${trait.instanceName}-policy
+          namespace: ${parameters.gatewayNamespace}
+        spec:
+          targetRefs:
+            - group: gateway.networking.k8s.io
+              kind: HTTPRoute
+              name: ${metadata.name}-${trait.instanceName}-llm-route
+          backend:
+            ai:
+              promptGuard:
+                request:
+                  - regex:
+                      action: Reject
+                      builtins: ${environmentConfigs.guardrails.builtins}
+                response:
+                  - regex:
+                      builtins: ${environmentConfigs.guardrails.builtins}
+                      action: Mask
+          traffic:
+            rateLimit:
+              local:
+                - requests: ${environmentConfigs.rateLimit.requestsPerMinute}
+                  unit: Minutes
+
+  patches:
+    - target:
+        group: apps
+        version: v1
+        kind: Deployment
+      operations:
+        - op: add
+          path: /spec/template/spec/containers/0/env/-
+          value:
+            name: OPENAI_BASE_URL
+            value: "http://${parameters.gatewayName}.${parameters.gatewayNamespace}"
+        - op: add
+          path: /spec/template/spec/containers/0/env/-
+          value:
+            name: X_OPENCHOREO_COMPONENT
+            value: ${metadata.componentName}

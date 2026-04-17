@@ -84,8 +84,7 @@ func main() {
 
 	openAIKey := os.Getenv("OPENAI_API_KEY")
 	if openAIKey == "" {
-		logger.Error("OPENAI_API_KEY environment variable is required")
-		os.Exit(1)
+		logger.Warn("OPENAI_API_KEY not set, assuming auth is handled by an AI gateway")
 	}
 
 	baseURL := os.Getenv("OPENAI_BASE_URL")
@@ -203,7 +202,13 @@ func (s *Server) callOpenAI(ctx context.Context, message string) (*ChatResponse,
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+s.openAIKey)
+	if s.openAIKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+s.openAIKey)
+	}
+	// Send component identity header for agentgateway routing
+	if component := os.Getenv("X_OPENCHOREO_COMPONENT"); component != "" {
+		httpReq.Header.Set("x-openchoreo-component", component)
+	}
 
 	resp, err := s.httpClient.Do(httpReq)
 	if err != nil {
